@@ -119,7 +119,7 @@ func TestRuntimeErrors(t *testing.T) {
 				render(<App />)
 			`,
 			data:              nil,
-			expectErrContains: "Cannot read property",
+			expectErrContains: "cannot access",
 		},
 		{
 			name: "call non-function",
@@ -131,7 +131,7 @@ func TestRuntimeErrors(t *testing.T) {
 				render(<App />)
 			`,
 			data:              nil,
-			expectErrContains: "not an object",
+			expectErrContains: "call a function on a non-object",
 		},
 		{
 			name: "map on non-array",
@@ -142,7 +142,7 @@ func TestRuntimeErrors(t *testing.T) {
 				render(<App />)
 			`,
 			data:              map[string]any{"items": "not an array"},
-			expectErrContains: "has no member 'map'",
+			expectErrContains: "'map' does not exist",
 		},
 	}
 
@@ -408,6 +408,71 @@ type NestedData struct {
 	Value string
 }
 
+func TestErrorMessagesIncludeHints(t *testing.T) {
+	renderer := preact10.RenderEngine
+	bundle := lavish.NewBundle(renderer)
+
+	tests := []struct {
+		name         string
+		jsx          string
+		data         any
+		expectHints  []string
+	}{
+		{
+			name: "undefined property access suggests optional chaining",
+			jsx: `
+				const App = () => <div>{data.foo.bar}</div>;
+				render(<App />)
+			`,
+			data: map[string]any{},
+			expectHints: []string{
+				"hint:",
+				"optional chaining",
+				"data?.Parent?.bar",
+			},
+		},
+		{
+			name: "array method on non-array explains the issue",
+			jsx: `
+				const App = () => <ul>{data.items.map(x => <li>{x}</li>)}</ul>;
+				render(<App />)
+			`,
+			data: map[string]any{"items": "string"},
+			expectHints: []string{
+				"hint:",
+				"array method on a non-array",
+			},
+		},
+		{
+			name: "undefined variable suggests import or definition",
+			jsx: `
+				const App = () => <div>{unknownVar}</div>;
+				render(<App />)
+			`,
+			data: nil,
+			expectHints: []string{
+				"hint:",
+				"misspelled",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := bundle.RenderJSX("test.jsx", tt.jsx, tt.data)
+			if err == nil {
+				t.Fatal("expected error but got nil")
+			}
+			errStr := err.Error()
+			for _, hint := range tt.expectHints {
+				if !strings.Contains(errStr, hint) {
+					t.Errorf("expected error to contain hint %q, got:\n%s", hint, errStr)
+				}
+			}
+		})
+	}
+}
+
 func TestNonexistentPropertyAccess(t *testing.T) {
 	renderer := preact10.RenderEngine
 	bundle := lavish.NewBundle(renderer)
@@ -438,7 +503,7 @@ func TestNonexistentPropertyAccess(t *testing.T) {
 			`,
 			data:        TestData{Name: "test"},
 			expectErr:   true,
-			errContains: "Cannot read property",
+			errContains: "cannot access 'Deep'",
 		},
 		{
 			name: "access nonexistent key on map",
@@ -458,7 +523,7 @@ func TestNonexistentPropertyAccess(t *testing.T) {
 			`,
 			data:        map[string]string{"present": "value"},
 			expectErr:   true,
-			errContains: "Cannot read property",
+			errContains: "cannot access 'nested'",
 		},
 		{
 			name: "access property on nil nested struct",
@@ -468,7 +533,7 @@ func TestNonexistentPropertyAccess(t *testing.T) {
 			`,
 			data:        TestData{Name: "test", Nested: nil},
 			expectErr:   true,
-			errContains: "Cannot read property",
+			errContains: "cannot access 'Value'",
 		},
 		{
 			name: "access valid nested struct property",
@@ -554,7 +619,7 @@ func TestNonexistentPropertyAccess(t *testing.T) {
 			`,
 			data:        TestData{Name: "test"},
 			expectErr:   true,
-			errContains: "has no member 'map'",
+			errContains: "'map' does not exist",
 		},
 	}
 

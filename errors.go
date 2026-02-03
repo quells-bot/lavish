@@ -2,6 +2,7 @@ package lavish
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -50,24 +51,83 @@ type RuntimeError struct {
 	Cause   error
 }
 
+// Patterns to extract useful info from goja errors
+var (
+	// Matches: Cannot read property 'PropName' of undefined
+	cannotReadPropRe = regexp.MustCompile(`Cannot read property '([^']+)' of (undefined|null)`)
+	// Matches: Object has no member 'memberName'
+	noMemberRe = regexp.MustCompile(`Object has no member '([^']+)'`)
+	// Matches: varName is not defined
+	notDefinedRe = regexp.MustCompile(`(\w+) is not defined`)
+	// Matches: at FuncName (file:line:col)
+	locationRe = regexp.MustCompile(`at (\w+) \(([^)]+)\)`)
+)
+
 func (e *RuntimeError) Error() string {
-	// Try to make common goja errors more readable
 	msg := e.Cause.Error()
+	var b strings.Builder
 
-	// Simplify common error patterns
-	if strings.Contains(msg, "Cannot read property") {
-		return fmt.Sprintf("%s: attempted to access property on null or undefined value: %s", e.Name, msg)
+	// Extract location info if present
+	location := ""
+	if matches := locationRe.FindStringSubmatch(msg); matches != nil {
+		funcName := matches[1]
+		loc := matches[2]
+		// Parse "file:line:col(offset)" format
+		if parts := strings.Split(loc, ":"); len(parts) >= 2 {
+			location = fmt.Sprintf(" (in %s at line %s)", funcName, parts[1])
+		}
 	}
-	if strings.Contains(msg, "is not defined") {
-		return fmt.Sprintf("%s: referenced undefined variable: %s", e.Name, msg)
+
+	// Handle "Cannot read property 'X' of undefined/null"
+	if matches := cannotReadPropRe.FindStringSubmatch(msg); matches != nil {
+		propName := matches[1]
+		nullOrUndef := matches[2]
+		_, _ = fmt.Fprintf(&b, "%s: cannot access '%s' because the parent value is %s%s\n",
+			e.Name, propName, nullOrUndef, location)
+		_, _ = fmt.Fprint(&b, "  hint: check that all intermediate properties exist before accessing nested values\n")
+		_, _ = fmt.Fprintf(&b, "  hint: use optional chaining in your JSX: data?.Parent?.%s", propName)
+		return b.String()
 	}
-	if strings.Contains(msg, "has no member") {
-		return fmt.Sprintf("%s: method or property does not exist: %s", e.Name, msg)
+
+	// Handle "Object has no member 'X'"
+	if matches := noMemberRe.FindStringSubmatch(msg); matches != nil {
+		memberName := matches[1]
+		_, _ = fmt.Fprintf(&b, "%s: '%s' does not exist on this value%s\n",
+			e.Name, memberName, location)
+		if memberName == "map" || memberName == "forEach" || memberName == "filter" {
+			_, _ = fmt.Fprint(&b, "  hint: you're calling an array method on a non-array value\n")
+			_, _ = fmt.Fprint(&b, "  hint: ensure the data property is an array, not an object or primitive")
+		} else {
+			_, _ = fmt.Fprintf(&b, "  hint: check that the property name '%s' is spelled correctly", memberName)
+		}
+		return b.String()
 	}
+
+	// Handle "X is not defined"
+	if matches := notDefinedRe.FindStringSubmatch(msg); matches != nil {
+		varName := matches[1]
+		_, _ = fmt.Fprintf(&b, "%s: '%s' is not defined%s\n",
+			e.Name, varName, location)
+		if varName == "data" {
+			_, _ = fmt.Fprint(&b, "  hint: the 'data' variable should be passed from Go via bundle.RenderJSX()")
+		} else {
+			_, _ = fmt.Fprintf(&b, "  hint: '%s' may be misspelled, or you may need to import/define it", varName)
+		}
+		return b.String()
+	}
+
+	// Handle "Value is not an object"
 	if strings.Contains(msg, "not an object") || strings.Contains(msg, "Value is not an object") {
-		return fmt.Sprintf("%s: expected an object but got a primitive value: %s", e.Name, msg)
+		_, _ = fmt.Fprintf(&b, "%s: tried to call a function on a non-object value%s\n",
+			e.Name, location)
+		_, _ = fmt.Fprint(&b, "  hint: you may be calling a method on a string, number, or other primitive")
+		return b.String()
 	}
 
+	// Default: include the original error with some context
+	if e.Message != "" {
+		return fmt.Sprintf("%s: %s: %s", e.Name, e.Message, msg)
+	}
 	return fmt.Sprintf("%s: runtime error: %s", e.Name, msg)
 }
 
