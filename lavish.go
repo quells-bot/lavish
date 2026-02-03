@@ -20,30 +20,53 @@ func (err TransformError) Error() string {
 
 	numErrors := len(err.Errors)
 	if numErrors == 1 {
-		_, _ = fmt.Fprintf(b, "syntax error in %s: ", err.Name)
+		_, _ = fmt.Fprintf(b, "syntax error in %s:\n", err.Name)
 	} else {
-		_, _ = fmt.Fprintf(b, "%d syntax errors in %s: ", numErrors, err.Name)
+		_, _ = fmt.Fprintf(b, "%d syntax errors in %s:\n", numErrors, err.Name)
 	}
 
 	for i, e := range err.Errors {
 		if i > 0 {
-			_, _ = fmt.Fprint(b, "; ")
+			_, _ = fmt.Fprint(b, "\n")
 		}
 		if loc := e.Location; loc != nil {
-			_, _ = fmt.Fprintf(b, "line %d: ", loc.Line)
+			_, _ = fmt.Fprintf(b, "  line %d: %s\n", loc.Line, e.Text)
+			// Show the source line with the error location
+			if loc.LineText != "" {
+				_, _ = fmt.Fprintf(b, "    | %s\n", loc.LineText)
+				// Add caret pointing to error location
+				_, _ = fmt.Fprint(b, "    | ")
+				for j := 0; j < loc.Column; j++ {
+					// Preserve tabs for alignment
+					if j < len(loc.LineText) && loc.LineText[j] == '\t' {
+						_, _ = fmt.Fprint(b, "\t")
+					} else {
+						_, _ = fmt.Fprint(b, " ")
+					}
+				}
+				// Show the error span
+				if loc.Length > 1 {
+					_, _ = fmt.Fprint(b, "^")
+					for j := 1; j < loc.Length; j++ {
+						_, _ = fmt.Fprint(b, "~")
+					}
+				} else {
+					_, _ = fmt.Fprint(b, "^")
+				}
+			}
+		} else {
+			_, _ = fmt.Fprintf(b, "  %s", e.Text)
 		}
-		_, _ = fmt.Fprint(b, e.Text)
 	}
 
 	if len(err.Warnings) > 0 {
-		_, _ = fmt.Fprint(b, " (")
+		_, _ = fmt.Fprint(b, "\n  warnings: ")
 		for i, w := range err.Warnings {
 			if i > 0 {
 				_, _ = fmt.Fprint(b, "; ")
 			}
-			_, _ = fmt.Fprintf(b, "warning: %s", w.Text)
+			_, _ = fmt.Fprint(b, w.Text)
 		}
-		_, _ = fmt.Fprint(b, ")")
 	}
 
 	return b.String()

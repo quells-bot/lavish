@@ -238,6 +238,72 @@ func TestTransformErrorDetails(t *testing.T) {
 	if !strings.Contains(errStr, "line 1") {
 		t.Fatalf("expected error to contain line number, got: %s", errStr)
 	}
+	// Error should show the source line
+	if !strings.Contains(errStr, "const x = (") {
+		t.Fatalf("expected error to show source line, got: %s", errStr)
+	}
+	// Error should show a caret pointing to the error
+	if !strings.Contains(errStr, "^") {
+		t.Fatalf("expected error to show caret, got: %s", errStr)
+	}
+}
+
+func TestErrorShowsSourceContext(t *testing.T) {
+	renderer := preact10.RenderEngine
+	bundle := lavish.NewBundle(renderer)
+
+	tests := []struct {
+		name           string
+		jsx            string
+		expectContains []string
+	}{
+		{
+			name: "unclosed tag shows both lines",
+			jsx: `const App = () => (
+    <div>
+        <span>Hello
+    </div>
+);`,
+			expectContains: []string{
+				"</div>",      // shows the problematic line
+				"^",           // caret pointing to error
+				"span",        // mentions the unclosed tag
+			},
+		},
+		{
+			name: "typo in JSX attribute",
+			jsx:  `const App = () => <div class=="test">Hi</div>;`,
+			expectContains: []string{
+				`class=="test"`, // shows the source with typo
+				"^",             // caret
+			},
+		},
+		{
+			name: "missing closing brace",
+			jsx: `const App = () => (
+    <div>{items.map(x => <span>{x}</span>}</div>
+);`,
+			expectContains: []string{
+				"items.map", // shows the source line
+				"^",         // caret
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := bundle.RenderJSX("test.jsx", tt.jsx, nil)
+			if err == nil {
+				t.Fatal("expected error but got nil")
+			}
+			errStr := err.Error()
+			for _, s := range tt.expectContains {
+				if !strings.Contains(errStr, s) {
+					t.Errorf("error should contain %q, got:\n%s", s, errStr)
+				}
+			}
+		})
+	}
 }
 
 func TestImprovedErrorMessages(t *testing.T) {
