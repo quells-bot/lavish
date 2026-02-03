@@ -394,3 +394,189 @@ func TestWhitespaceOnlyJSX(t *testing.T) {
 		t.Fatalf("expected error about missing render call, got: %s", err.Error())
 	}
 }
+
+// TestData is a struct used to test property access from JSX
+type TestData struct {
+	Name    string
+	Count   int
+	Items   []string
+	Nested  *NestedData
+	private string
+}
+
+type NestedData struct {
+	Value string
+}
+
+func TestNonexistentPropertyAccess(t *testing.T) {
+	renderer := preact10.RenderEngine
+	bundle := lavish.NewBundle(renderer)
+
+	tests := []struct {
+		name        string
+		jsx         string
+		data        any
+		expectErr   bool
+		errContains string
+		expectHTML  string // if no error expected, check output
+	}{
+		{
+			name: "access nonexistent field on struct",
+			jsx: `
+				const App = () => <div>{data.NonExistent}</div>;
+				render(<App />)
+			`,
+			data:       TestData{Name: "test"},
+			expectErr:  false,
+			expectHTML: "<div></div>", // undefined renders as empty
+		},
+		{
+			name: "access nonexistent nested field",
+			jsx: `
+				const App = () => <div>{data.NonExistent.Deep}</div>;
+				render(<App />)
+			`,
+			data:        TestData{Name: "test"},
+			expectErr:   true,
+			errContains: "Cannot read property",
+		},
+		{
+			name: "access nonexistent key on map",
+			jsx: `
+				const App = () => <div>{data.missing}</div>;
+				render(<App />)
+			`,
+			data:       map[string]string{"present": "value"},
+			expectErr:  false,
+			expectHTML: "<div></div>", // undefined renders as empty
+		},
+		{
+			name: "access nested nonexistent key on map",
+			jsx: `
+				const App = () => <div>{data.missing.nested}</div>;
+				render(<App />)
+			`,
+			data:        map[string]string{"present": "value"},
+			expectErr:   true,
+			errContains: "Cannot read property",
+		},
+		{
+			name: "access property on nil nested struct",
+			jsx: `
+				const App = () => <div>{data.Nested.Value}</div>;
+				render(<App />)
+			`,
+			data:        TestData{Name: "test", Nested: nil},
+			expectErr:   true,
+			errContains: "Cannot read property",
+		},
+		{
+			name: "access valid nested struct property",
+			jsx: `
+				const App = () => <div>{data.Nested.Value}</div>;
+				render(<App />)
+			`,
+			data:       TestData{Name: "test", Nested: &NestedData{Value: "hello"}},
+			expectErr:  false,
+			expectHTML: "<div>hello</div>",
+		},
+		{
+			name: "access property with typo",
+			jsx: `
+				const App = () => <div>{data.Naem}</div>;
+				render(<App />)
+			`,
+			data:       TestData{Name: "test"},
+			expectErr:  false,
+			expectHTML: "<div></div>", // undefined due to typo
+		},
+		{
+			name: "access array index out of bounds",
+			jsx: `
+				const App = () => <div>{data.Items[99]}</div>;
+				render(<App />)
+			`,
+			data:       TestData{Items: []string{"a", "b"}},
+			expectErr:  false,
+			expectHTML: "<div></div>", // undefined for out of bounds
+		},
+		{
+			name: "iterate over nil slice",
+			jsx: `
+				const App = () => (
+					<ul>{data.Items.map(x => <li>{x}</li>)}</ul>
+				);
+				render(<App />)
+			`,
+			data:       TestData{Items: nil},
+			expectErr:  false,
+			expectHTML: "<ul></ul>", // goja converts nil slice to empty array
+		},
+		{
+			name: "iterate over empty slice",
+			jsx: `
+				const App = () => (
+					<ul>{data.Items.map(x => <li>{x}</li>)}</ul>
+				);
+				render(<App />)
+			`,
+			data:       TestData{Items: []string{}},
+			expectErr:  false,
+			expectHTML: "<ul></ul>",
+		},
+		{
+			name: "access unexported field",
+			jsx: `
+				const App = () => <div>{data.private}</div>;
+				render(<App />)
+			`,
+			data:       TestData{Name: "test"},
+			expectErr:  false,
+			expectHTML: "<div></div>", // unexported fields not visible
+		},
+		{
+			name: "wrong data type - expected object got string",
+			jsx: `
+				const App = () => <div>{data.Name}</div>;
+				render(<App />)
+			`,
+			data:       "just a string",
+			expectErr:  false,
+			expectHTML: "<div></div>", // string has no .Name property
+		},
+		{
+			name: "wrong data type - expected array got object",
+			jsx: `
+				const App = () => (
+					<ul>{data.map(x => <li>{x}</li>)}</ul>
+				);
+				render(<App />)
+			`,
+			data:        TestData{Name: "test"},
+			expectErr:   true,
+			errContains: "has no member 'map'",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := bundle.RenderJSX("test.jsx", tt.jsx, tt.data)
+
+			if tt.expectErr {
+				if err == nil {
+					t.Fatalf("expected error but got result: %s", result)
+				}
+				if !strings.Contains(err.Error(), tt.errContains) {
+					t.Fatalf("expected error containing %q, got: %s", tt.errContains, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %s", err.Error())
+				}
+				if result != tt.expectHTML {
+					t.Fatalf("expected HTML %q, got %q", tt.expectHTML, result)
+				}
+			}
+		})
+	}
+}
