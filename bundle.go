@@ -3,6 +3,8 @@ package lavish
 import (
 	"bytes"
 	"fmt"
+	"io"
+
 	"github.com/dop251/goja"
 )
 
@@ -48,6 +50,16 @@ func (b Bundle) WithRenderCache(cache RenderCache) Bundle {
 
 func (b Bundle) Render(program *goja.Program, data any) (rendered string, err error) {
 	return b.renderWithName(program, data, "program")
+}
+
+// RenderTo writes the rendered output directly to w, avoiding string allocation.
+func (b Bundle) RenderTo(w io.Writer, program *goja.Program, data any) error {
+	rendered, err := b.renderWithName(program, data, "program")
+	if err != nil {
+		return err
+	}
+	_, err = io.WriteString(w, rendered)
+	return err
 }
 
 func (b Bundle) renderWithName(program *goja.Program, data any, name string) (rendered string, err error) {
@@ -148,4 +160,64 @@ func (b *Bundle) RenderJSX(name, jsx string, data any) (rendered string, err err
 		b.renderCache.AddRender(programHash, dataHash, rendered)
 	}
 	return
+}
+
+// RenderJSXTo writes the rendered output directly to w.
+func (b *Bundle) RenderJSXTo(w io.Writer, name, jsx string, data any) error {
+	rendered, err := b.RenderJSX(name, jsx, data)
+	if err != nil {
+		return err
+	}
+	_, err = io.WriteString(w, rendered)
+	return err
+}
+
+// Template represents a pre-compiled JSX template for efficient re-use.
+type Template struct {
+	name    string
+	program *goja.Program
+}
+
+// MustCompile compiles a JSX template at initialization time.
+// It panics if the template has syntax errors, making it suitable for use
+// with package-level var declarations.
+//
+// Example:
+//
+//	var indexTemplate = lavish.MustCompile("index.jsx", indexJSX, preact10.RenderEngine)
+func MustCompile(name, jsx string, engine RenderEngine) *Template {
+	program, err := CompileJSX(name, jsx, engine.GetJSXOptions())
+	if err != nil {
+		panic(fmt.Sprintf("lavish.MustCompile %s: %v", name, err))
+	}
+	return &Template{name: name, program: program}
+}
+
+// Compile compiles a JSX template, returning an error if it fails.
+func Compile(name, jsx string, engine RenderEngine) (*Template, error) {
+	program, err := CompileJSX(name, jsx, engine.GetJSXOptions())
+	if err != nil {
+		return nil, err
+	}
+	return &Template{name: name, program: program}, nil
+}
+
+// Render executes the pre-compiled template with the given data.
+func (t *Template) Render(b *Bundle, data any) (string, error) {
+	return b.renderWithName(t.program, data, t.name)
+}
+
+// RenderTo executes the pre-compiled template and writes to w.
+func (t *Template) RenderTo(b *Bundle, w io.Writer, data any) error {
+	rendered, err := b.renderWithName(t.program, data, t.name)
+	if err != nil {
+		return err
+	}
+	_, err = io.WriteString(w, rendered)
+	return err
+}
+
+// Name returns the template's name.
+func (t *Template) Name() string {
+	return t.name
 }
