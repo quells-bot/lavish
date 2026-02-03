@@ -2,6 +2,7 @@ package lavish_test
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/quells/lavish"
@@ -120,6 +121,61 @@ func TestRenderJSXTo(t *testing.T) {
 	}
 	if buf.String() != "<div>Hello</div>" {
 		t.Errorf("unexpected result: %s", buf.String())
+	}
+}
+
+func TestTemplateWithBundleModules(t *testing.T) {
+	renderer := preact10.RenderEngine
+
+	// Define a component that will be loaded as a module
+	wrapperJSX := `
+		const Wrapper = ({ children, title }) => (
+			<div class="wrapper">
+				<h1>{title}</h1>
+				{children}
+			</div>
+		);
+	`
+
+	// Pre-compile a template that uses the Wrapper component
+	tmpl := lavish.MustCompile("page.jsx", `
+		const Page = () => (
+			<Wrapper title={data.Title}>
+				<p>{data.Content}</p>
+			</Wrapper>
+		);
+		render(<Page />)
+	`, renderer)
+
+	// Create bundle WITH the Wrapper module
+	bundleWithModule := lavish.NewBundle(
+		renderer,
+		lavish.ComponentJSX("wrapper.jsx", wrapperJSX, renderer.GetJSXOptions()),
+	)
+
+	// This should work - Wrapper is available from the module
+	data := map[string]string{"Title": "Hello", "Content": "World"}
+	result, err := tmpl.Render(&bundleWithModule, data)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, "Hello") || !strings.Contains(result, "World") {
+		t.Errorf("unexpected result: %s", result)
+	}
+	if !strings.Contains(result, `class="wrapper"`) {
+		t.Errorf("Wrapper component not rendered: %s", result)
+	}
+
+	// Create bundle WITHOUT the Wrapper module
+	bundleWithoutModule := lavish.NewBundle(renderer)
+
+	// This should fail - Wrapper is not defined
+	_, err = tmpl.Render(&bundleWithoutModule, data)
+	if err == nil {
+		t.Fatal("expected error when Wrapper is not defined")
+	}
+	if !strings.Contains(err.Error(), "Wrapper") && !strings.Contains(err.Error(), "not defined") {
+		t.Errorf("expected error about Wrapper not defined, got: %s", err.Error())
 	}
 }
 
