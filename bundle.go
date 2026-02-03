@@ -47,6 +47,10 @@ func (b Bundle) WithRenderCache(cache RenderCache) Bundle {
 }
 
 func (b Bundle) Render(program *goja.Program, data any) (rendered string, err error) {
+	return b.renderWithName(program, data, "program")
+}
+
+func (b Bundle) renderWithName(program *goja.Program, data any, name string) (rendered string, err error) {
 	vm := goja.New()
 	for _, loader := range b.modules {
 		if err = loader.Load(vm); err != nil {
@@ -83,16 +87,16 @@ func (b Bundle) Render(program *goja.Program, data any) (rendered string, err er
 		return
 	}
 	if _, err = vm.RunProgram(program); err != nil {
-		err = fmt.Errorf("failed to run compiled program: %w", err)
+		err = &RuntimeError{Name: name, Cause: err}
 		return
 	}
 
 	if !renderCalled {
-		err = fmt.Errorf("program did not call render function %q", b.renderFunction)
+		err = &MissingRenderCallError{Name: name, RenderFunction: b.renderFunction}
 		return
 	}
 	if renderErr != nil {
-		err = fmt.Errorf("failed to call render function %q: %w", b.renderFunction, renderErr)
+		err = &RuntimeError{Name: name, Message: "error in component render", Cause: renderErr}
 		return
 	}
 
@@ -126,7 +130,7 @@ func (b *Bundle) RenderJSX(name, jsx string, data any) (rendered string, err err
 	if program == nil {
 		program, err = CompileJSX(name, jsx, b.engine.GetJSXOptions())
 		if err != nil {
-			err = fmt.Errorf("failed to compile jsx: %w", err)
+			// TransformError already has good context, don't wrap it
 			return
 		}
 	}
@@ -135,7 +139,7 @@ func (b *Bundle) RenderJSX(name, jsx string, data any) (rendered string, err err
 		b.programCache.AddProgram(programHash, program)
 	}
 
-	rendered, err = b.Render(program, data)
+	rendered, err = b.renderWithName(program, data, name)
 	if err != nil {
 		return
 	}

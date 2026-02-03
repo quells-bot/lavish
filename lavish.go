@@ -8,6 +8,7 @@ import (
 	"github.com/evanw/esbuild/pkg/api"
 )
 
+// TransformError represents a JSX syntax error during transpilation.
 type TransformError struct {
 	Name     string
 	Errors   []api.Message
@@ -16,28 +17,33 @@ type TransformError struct {
 
 func (err TransformError) Error() string {
 	b := new(strings.Builder)
-	_, _ = fmt.Fprintf(b, "failed to transform %s: ", err.Name)
 
-	idx := 0
-	for _, e := range err.Errors {
-		if idx > 0 {
-			_, _ = fmt.Fprintf(b, ", ")
+	numErrors := len(err.Errors)
+	if numErrors == 1 {
+		_, _ = fmt.Fprintf(b, "syntax error in %s: ", err.Name)
+	} else {
+		_, _ = fmt.Fprintf(b, "%d syntax errors in %s: ", numErrors, err.Name)
+	}
+
+	for i, e := range err.Errors {
+		if i > 0 {
+			_, _ = fmt.Fprint(b, "; ")
 		}
 		if loc := e.Location; loc != nil {
-			_, _ = fmt.Fprintf(b, "[%s %d:%d] ", err.Name, loc.Line, loc.Column)
+			_, _ = fmt.Fprintf(b, "line %d: ", loc.Line)
 		}
 		_, _ = fmt.Fprint(b, e.Text)
-		idx++
 	}
-	for _, w := range err.Warnings {
-		if idx > 0 {
-			_, _ = fmt.Fprintf(b, ", ")
+
+	if len(err.Warnings) > 0 {
+		_, _ = fmt.Fprint(b, " (")
+		for i, w := range err.Warnings {
+			if i > 0 {
+				_, _ = fmt.Fprint(b, "; ")
+			}
+			_, _ = fmt.Fprintf(b, "warning: %s", w.Text)
 		}
-		if loc := w.Location; loc != nil {
-			_, _ = fmt.Fprintf(b, "[%s %d:%d] ", err.Name, loc.Line, loc.Column)
-		}
-		_, _ = fmt.Fprint(b, w.Text)
-		idx++
+		_, _ = fmt.Fprint(b, ")")
 	}
 
 	return b.String()

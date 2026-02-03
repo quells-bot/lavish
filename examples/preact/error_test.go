@@ -174,8 +174,12 @@ func TestMissingRenderCall(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error but got nil")
 	}
-	if !strings.Contains(err.Error(), "did not call render function") {
+	if !strings.Contains(err.Error(), "did not produce output") {
 		t.Fatalf("expected error about missing render call, got: %s", err.Error())
+	}
+	// Should also suggest the fix
+	if !strings.Contains(err.Error(), "ensure your JSX calls render(") {
+		t.Fatalf("expected error to suggest fix, got: %s", err.Error())
 	}
 }
 
@@ -222,14 +226,79 @@ func TestTransformErrorDetails(t *testing.T) {
 	}
 
 	errStr := err.Error()
+	// Error should clearly indicate it's a syntax error
+	if !strings.Contains(errStr, "syntax error") {
+		t.Fatalf("expected error to indicate syntax error, got: %s", errStr)
+	}
 	// Error should contain the file name
 	if !strings.Contains(errStr, "location_test.jsx") {
 		t.Fatalf("expected error to contain filename, got: %s", errStr)
 	}
-	// Error should contain line:column info
-	if !strings.Contains(errStr, "1:") {
+	// Error should contain line number
+	if !strings.Contains(errStr, "line 1") {
 		t.Fatalf("expected error to contain line number, got: %s", errStr)
 	}
+}
+
+func TestImprovedErrorMessages(t *testing.T) {
+	renderer := preact10.RenderEngine
+	bundle := lavish.NewBundle(renderer)
+
+	t.Run("syntax error is clearly labeled", func(t *testing.T) {
+		jsx := `<div>unclosed`
+		_, err := bundle.RenderJSX("test.jsx", jsx, nil)
+		if err == nil {
+			t.Fatal("expected error but got nil")
+		}
+		if !strings.HasPrefix(err.Error(), "syntax error in test.jsx") {
+			t.Fatalf("error should start with 'syntax error in': %s", err.Error())
+		}
+	})
+
+	t.Run("single syntax error says 'syntax error' (singular)", func(t *testing.T) {
+		jsx := `const a = (`
+		_, err := bundle.RenderJSX("single.jsx", jsx, nil)
+		if err == nil {
+			t.Fatal("expected error but got nil")
+		}
+		// Single error should say "syntax error" (singular)
+		if !strings.Contains(err.Error(), "syntax error in single.jsx") {
+			t.Fatalf("expected singular 'syntax error in': %s", err.Error())
+		}
+	})
+
+	t.Run("runtime error shows context", func(t *testing.T) {
+		jsx := `
+			const App = () => <div>{undefined.foo}</div>;
+			render(<App />)
+		`
+		_, err := bundle.RenderJSX("runtime.jsx", jsx, nil)
+		if err == nil {
+			t.Fatal("expected error but got nil")
+		}
+		errStr := err.Error()
+		// Should include the file name
+		if !strings.Contains(errStr, "runtime.jsx") {
+			t.Fatalf("error should include filename: %s", errStr)
+		}
+	})
+
+	t.Run("missing render suggests fix", func(t *testing.T) {
+		jsx := `const App = () => <div>Hello</div>;`
+		_, err := bundle.RenderJSX("norender.jsx", jsx, nil)
+		if err == nil {
+			t.Fatal("expected error but got nil")
+		}
+		errStr := err.Error()
+		// Should mention the file
+		if !strings.Contains(errStr, "norender.jsx") {
+			t.Fatalf("error should include filename: %s", errStr)
+		}
+		// Should suggest the fix
+		if !strings.Contains(errStr, "ensure your JSX calls render(") {
+			t.Fatalf("error should suggest calling render(): %s", errStr)
+		}
+	})
 }
 
 func TestEmptyJSX(t *testing.T) {
@@ -241,7 +310,7 @@ func TestEmptyJSX(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error but got nil")
 	}
-	if !strings.Contains(err.Error(), "did not call render function") {
+	if !strings.Contains(err.Error(), "did not produce output") {
 		t.Fatalf("expected error about missing render call, got: %s", err.Error())
 	}
 }
@@ -255,7 +324,7 @@ func TestWhitespaceOnlyJSX(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error but got nil")
 	}
-	if !strings.Contains(err.Error(), "did not call render function") {
+	if !strings.Contains(err.Error(), "did not produce output") {
 		t.Fatalf("expected error about missing render call, got: %s", err.Error())
 	}
 }

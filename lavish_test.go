@@ -27,7 +27,7 @@ func TestCompileJSX(t *testing.T) {
 		{
 			name:      "syntax_error.jsx",
 			src:       "let x = new Array(",
-			expectErr: "failed to transform syntax_error.jsx: [syntax_error.jsx 1:18] Unexpected end of file",
+			expectErr: "syntax error in syntax_error.jsx: line 1: Unexpected end of file",
 		},
 	}
 	for _, tt := range tests {
